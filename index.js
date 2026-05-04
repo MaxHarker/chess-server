@@ -78,6 +78,8 @@ io.on('connection', (socket) => {
 
         const playerIndex = game.players.indexOf(socket.id)
         const playerColor = playerIndex === 0 ? 'white' : 'black'
+        const targetPiece = game.board[to[0]][to[1]]
+        const isCapture = !!targetPiece
 
         if (game.turn !== playerColor) return
 
@@ -95,6 +97,10 @@ io.on('connection', (socket) => {
         evaluateGameState(games[roomId])
 
         io.to(roomId).emit('gameState', games[roomId])
+
+        io.to(roomId).emit('moveMade', {
+            type: isCapture ? 'capture' : 'move'
+        })
     })
 
     socket.on('promotePawn', ({ roomId, piece }) => {
