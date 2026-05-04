@@ -67,7 +67,8 @@ io.on('connection', (socket) => {
 
         if (game.players.length === 2 && game.status === 'waiting') {
             game.status = 'playing'
-            io.to(roomId).emit('gameStart', { gameState: game })
+            const startTime = Date.now() + 3000
+            io.to(roomId).emit('gameStart', { gameState: game, startTime })
             console.log('Game started!')
         }
     })
