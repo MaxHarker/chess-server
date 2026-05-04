@@ -2,6 +2,8 @@ import express from 'express'
 import http from 'http'
 import { Server } from 'socket.io'
 import cors from 'cors'
+import crypto from 'crypto'
+
 import { tryMove, hasLegalMoves, isKingInCheck } from './chessLogic.js'
 import { initialGameState } from './initialGameState.js'
 
@@ -20,6 +22,7 @@ const io = new Server(server, {
 })
 
 const games = {}
+const queue = []
 
 function evaluateGameState(game) {
     const turn = game.turn
@@ -37,39 +40,46 @@ function evaluateGameState(game) {
     }
 }
 
+function createMatch(player1, player2) {
+    const roomId = crypto.randomUUID()
+
+    player1.join(roomId)
+    player2.join(roomId)
+
+    const game = {
+        ...structuredClone(initialGameState),
+        players: [player1.id, player2.id],
+    }
+
+    games[roomId] = game
+
+    player1.emit('matchFound', { roomId, color: 'white' })
+    player2.emit('matchFound', { roomId, color: 'black' })
+
+    console.log(`Match created: ${roomId}`)
+
+    game.status = 'playing'
+    const startTime = Date.now() + 3000
+
+    io.to(roomId).emit('gameStart', {
+        gameState: game,
+        startTime
+    })
+}
+
 io.on('connection', (socket) => {
-    console.log(`Client ${socket.id} connected`)
-    socket.on('joinGame', (roomId) => {
-        socket.join(roomId)
+    console.log(`Client connected: ${socket.id}`)
 
-        if (!games[roomId]) {
-            games[roomId] = {
-                ...structuredClone(initialGameState),
-                players: []
-            }
-            console.log(`Game ${roomId} created`)
-        }
+    socket.on('findMatch', () => {
+        console.log(`Player queued: ${socket.id}`)
 
-        const game = games[roomId]
+        queue.push(socket)
 
-        // reconnect case
-        if (!game.players.includes(socket.id) && game.players.length < 2) {
-            game.players.push(socket.id)
-        }
+        if (queue.length >= 2) {
+            const player1 = queue.shift()
+            const player2 = queue.shift()
 
-        const playerIndex = game.players.indexOf(socket.id)
-        const color = playerIndex === 0 ? 'white' : 'black'
-
-        socket.emit('gameJoined', { color })
-        socket.emit('gameState', game)
-
-        io.to(roomId).emit('playerCount', game.players.length)
-
-        if (game.players.length === 2 && game.status === 'waiting') {
-            game.status = 'playing'
-            const startTime = Date.now() + 3000
-            io.to(roomId).emit('gameStart', { gameState: game, startTime })
-            console.log('Game started!')
+            createMatch(player1, player2)
         }
     })
 
@@ -79,6 +89,7 @@ io.on('connection', (socket) => {
 
         const playerIndex = game.players.indexOf(socket.id)
         const playerColor = playerIndex === 0 ? 'white' : 'black'
+
         const targetPiece = game.board[to[0]][to[1]]
         const isCapture = !!targetPiece
 
@@ -89,7 +100,6 @@ io.on('connection', (socket) => {
 
         games[roomId] = structuredClone(newState)
 
-        // if promotion required → pause game
         if (newState.pendingPromotion) {
             io.to(roomId).emit('gameState', newState)
             return
@@ -120,21 +130,25 @@ io.on('connection', (socket) => {
     })
 
     socket.on('disconnect', () => {
-        console.log(`Client ${socket.id} disconnected`)
+        console.log(`Disconnected: ${socket.id}`)
+
+        const index = queue.findIndex(p => p.id === socket.id)
+        if (index !== -1) queue.splice(index, 1)
+
         for (const roomId in games) {
             const game = games[roomId]
+
             game.players = game.players.filter(id => id !== socket.id)
 
             if (game.players.length === 0) {
                 delete games[roomId]
-                console.log(`Game ${roomId} deleted`)
+                console.log(`Deleted game ${roomId}`)
             }
         }
     })
 })
 
 const PORT = process.env.PORT || 3001
-
 server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`)
+    console.log(`Server listening on ${PORT}`)
 })
