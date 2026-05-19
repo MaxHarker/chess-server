@@ -12,16 +12,11 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
-<<<<<<< HEAD
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "pg": "^8.21.0",
-=======
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
->>>>>>> 2dde914b917c1bf7d42af0a2d4f2660595f318e4
     "socket.io": "^4.8.3"
   }
 }
