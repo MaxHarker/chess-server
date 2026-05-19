@@ -7,10 +7,13 @@ import crypto from 'crypto'
 import { tryMove, hasLegalMoves, isKingInCheck } from './chessLogic.js'
 import { initialGameState } from './initialGameState.js'
 
+<<<<<<< HEAD
 import db from './db.js'
 import bcrypt from 'bcrypt'
 const saltRounds = 10
 
+=======
+>>>>>>> 2dde914b917c1bf7d42af0a2d4f2660595f318e4
 const app = express()
 app.use(cors())
 
@@ -74,6 +77,7 @@ function createMatch(player1, player2) {
 io.on('connection', (socket) => {
     console.log(`Client connected: ${socket.id}`)
 
+<<<<<<< HEAD
     socket.on('signUp', async ({ username, password, email }, callback) => {
         try {
             if (!username || !password || !email) {
@@ -178,6 +182,8 @@ io.on('connection', (socket) => {
         }
     })
 
+=======
+>>>>>>> 2dde914b917c1bf7d42af0a2d4f2660595f318e4
     socket.on('findMatch', () => {
         console.log(`Player queued: ${socket.id}`)
 
