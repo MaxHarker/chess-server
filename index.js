@@ -183,6 +183,8 @@ io.on('connection', (socket) => {
 
         queue.push(socket)
 
+        io.emit('queueUpdate', { queueNum: queue.length })
+
         if (queue.length >= 2) {
             const player1 = queue.shift()
             const player2 = queue.shift()
