@@ -9,6 +9,9 @@ import { initialGameState } from './initialGameState.js'
 
 import db from './db.js'
 import bcrypt from 'bcrypt'
+
+console.log('Server starting...')
+
 const saltRounds = 10
 
 const app = express()
@@ -216,6 +219,8 @@ io.on('connection', (socket) => {
         }
 
         evaluateGameState(games[roomId])
+
+        console.log(`Move made: ${from} -> ${to}`)
 
         io.to(roomId).emit('gameState', games[roomId])
 
