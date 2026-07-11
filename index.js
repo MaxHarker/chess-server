@@ -55,7 +55,20 @@ function createMatch(player1, player2) {
 
     const game = {
         ...structuredClone(initialGameState),
-        players: [player1.id, player2.id],
+        players: [
+            {
+                userId: player1.userId,
+                socketId: player1.id,
+                connected: true,
+                color: 'white'
+            },
+            {
+                userId: player2.userId,
+                socketId: player2.id,
+                connected: true,
+                color: 'black'
+            }
+        ]
     }
 
     games[roomId] = game
@@ -74,8 +87,43 @@ function createMatch(player1, player2) {
     })
 }
 
+io.use((socket, next) => {
+
+    const userId = socket.handshake.auth.userId
+
+    if (userId) {
+        socket.userId = userId
+    }
+
+    next()
+
+})
+
 io.on('connection', (socket) => {
     console.log(`Client connected: ${socket.id}`)
+
+    if (socket.userId) {
+        for (const roomId in games) {
+            const game = games[roomId]
+
+            const player = game.players.find(
+                p => p.userId == socket.userId
+            )
+
+            if (player) {
+                player.socketId = socket.id
+                player.connected = true
+                socket.join(roomId)
+                socket.emit("gameState", game)
+                socket.emit("matchFound", {
+                    roomId,
+                    color: player.color
+                })
+
+                break
+            }
+        }
+    }
 
     socket.on('signUp', async ({ username, password, email }, callback) => {
         try {
@@ -182,7 +230,17 @@ io.on('connection', (socket) => {
     })
 
     socket.on('findMatch', () => {
-        console.log(`Player queued: ${socket.id}`)
+        if (!socket.userId) {
+            console.log('Player not logged in, cannot queue')
+            return
+        }
+
+        console.log(`Player queued: ${socket.userId}`)
+
+        if (queue.some(p => p.userId === socket.userId)) {
+            console.log('Player already in queue')
+            return
+        }
 
         queue.push(socket)
 
@@ -200,13 +258,13 @@ io.on('connection', (socket) => {
         const game = games[roomId]
         if (!game || game.pendingPromotion) return
 
-        const playerIndex = game.players.indexOf(socket.id)
-        const playerColor = playerIndex === 0 ? 'white' : 'black'
+        const player = game.players.find(
+            player => player.userId === socket.userId
+        )
 
-        const targetPiece = game.board[to[0]][to[1]]
-        const isCapture = !!targetPiece
+        if (!player) return
 
-        if (game.turn !== playerColor) return
+        if (game.turn !== player.color) return
 
         const newState = tryMove(from[0], from[1], to[0], to[1], game)
         if (!newState) return
@@ -223,6 +281,8 @@ io.on('connection', (socket) => {
         console.log(`Move made: ${from} -> ${to}`)
 
         io.to(roomId).emit('gameState', games[roomId])
+
+        const isCapture = !!game.board[to[0]][to[1]]
 
         io.to(roomId).emit('moveMade', {
             type: isCapture ? 'capture' : 'move'
@@ -247,18 +307,44 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         console.log(`Disconnected: ${socket.id}`)
 
-        const index = queue.findIndex(p => p.id === socket.id)
+        const index = queue.findIndex(p => p.userId === socket.userId)
         if (index !== -1) queue.splice(index, 1)
 
         for (const roomId in games) {
             const game = games[roomId]
 
-            game.players = game.players.filter(id => id !== socket.id)
+            const player = game.players.find(
+                p => p.userId === socket.userId
+            )
 
-            if (game.players.length === 0) {
+            if (player) {
+                player.connected = false
+                console.log(`Player ${socket.userId} disconnected from ${roomId}`)
+            }
+
+            if (game.players.every(p => !p.connected)) {
                 delete games[roomId]
                 console.log(`Deleted game ${roomId}`)
             }
+        }
+    })
+
+    socket.on("leaveGame", ({ roomId }) => {
+        const game = games[roomId]
+        if (!game) return
+
+        const player = game.players.find(
+            p => p.userId === socket.userId
+        )
+
+        if (!player) return
+
+        player.connected = false
+        socket.leave(roomId)
+
+        if (game.players.every(p => !p.connected)) {
+            delete games[roomId]
+            console.log(`Deleted game ${roomId}`)
         }
     })
 })
