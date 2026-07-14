@@ -59,12 +59,16 @@ function createMatch(player1, player2) {
             {
                 userId: player1.userId,
                 socketId: player1.id,
+                username: player1.username,
+                rating: player1.rating,
                 connected: true,
                 color: 'white'
             },
             {
                 userId: player2.userId,
                 socketId: player2.id,
+                username: player2.username,
+                rating: player2.rating,
                 connected: true,
                 color: 'black'
             }
@@ -81,23 +85,39 @@ function createMatch(player1, player2) {
     game.status = 'playing'
     const startTime = Date.now() + 3000
 
-    io.to(roomId).emit('gameStart', {
-        gameState: game,
-        startTime
-    })
+    io.to(roomId).emit('gameStart', startTime)
+
+    io.to(roomId).emit('gameState', game)
 }
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
+    const userId = socket.handshake.auth.userId;
 
-    const userId = socket.handshake.auth.userId
-
-    if (userId) {
-        socket.userId = userId
+    if (!userId) {
+        return next();
     }
 
-    next()
+    try {
+        const result = await db.query(
+            `SELECT username, rating
+             FROM "User"
+             WHERE id = $1`,
+            [userId]
+        );
 
-})
+        if (result.rows.length === 0) {
+            return next();
+        }
+
+        socket.userId = userId;
+        socket.username = result.rows[0].username;
+        socket.rating = result.rows[0].rating;
+
+        next();
+    } catch (err) {
+        next(err);
+    }
+});
 
 io.on('connection', (socket) => {
     console.log(`Client connected: ${socket.id}`)
@@ -206,10 +226,6 @@ io.on('connection', (socket) => {
                     message: 'Invalid password'
                 })
             }
-
-            // attach session info to socket
-            socket.userId = user.id
-            socket.username = user.username
 
             return callback({
                 success: true,
