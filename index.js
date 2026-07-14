@@ -31,7 +31,7 @@ const io = new Server(server, {
 const games = {}
 const queue = []
 
-function evaluateGameState(game) {
+async function evaluateGameState(game) {
     const turn = game.turn
 
     const hasMoves = hasLegalMoves(turn, game)
@@ -40,6 +40,7 @@ function evaluateGameState(game) {
     if (!hasMoves && inCheck) {
         game.status = 'checkmate'
         game.winner = turn === 'white' ? 'black' : 'white'
+        await updateRatings(game)
     } else if (!hasMoves) {
         game.status = 'stalemate'
     } else {
@@ -47,7 +48,84 @@ function evaluateGameState(game) {
     }
 }
 
-function createMatch(player1, player2) {
+function calculateNewRating(
+    playerRating,
+    opponentRating,
+    result
+) {
+    const K = 32
+
+    const expected =
+        1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400))
+
+    return Math.round(
+        playerRating + K * (result - expected)
+    )
+}
+
+async function updateRatings(game) {
+    const winner = game.players.find(
+        p => p.color === game.winner
+    )
+
+    const loser = game.players.find(
+        p => p.color !== game.winner
+    )
+
+    const winnerNewRating = calculateNewRating(
+        winner.rating,
+        loser.rating,
+        1
+    )
+
+    const loserNewRating = calculateNewRating(
+        loser.rating,
+        winner.rating,
+        0
+    )
+
+    await db.query(
+        `UPDATE "User"
+         SET rating = $1
+         WHERE id = $2`,
+        [winnerNewRating, winner.userId]
+    )
+
+    await db.query(
+        `UPDATE "User"
+         SET rating = $1
+         WHERE id = $2`,
+        [loserNewRating, loser.userId]
+    )
+
+    winner.rating = winnerNewRating
+    loser.rating = loserNewRating
+}
+
+async function createMatch(player1, player2) {
+
+    const player1Result = await db.query(
+        `
+        SELECT username, rating
+        FROM "User"
+        WHERE id = $1
+        `,
+        [player1.userId]
+    )
+
+    const player2Result = await db.query(
+        `
+        SELECT username, rating
+        FROM "User"
+        WHERE id = $1
+        `,
+        [player2.userId]
+    )
+
+
+    const player1Data = player1Result.rows[0]
+    const player2Data = player2Result.rows[0]
+
     const roomId = crypto.randomUUID()
 
     player1.join(roomId)
@@ -59,16 +137,16 @@ function createMatch(player1, player2) {
             {
                 userId: player1.userId,
                 socketId: player1.id,
-                username: player1.username,
-                rating: player1.rating,
+                username: player1Data.username,
+                rating: player1Data.rating,
                 connected: true,
                 color: 'white'
             },
             {
                 userId: player2.userId,
                 socketId: player2.id,
-                username: player2.username,
-                rating: player2.rating,
+                username: player2Data.username,
+                rating: player2Data.rating,
                 connected: true,
                 color: 'black'
             }
@@ -245,7 +323,7 @@ io.on('connection', (socket) => {
         }
     })
 
-    socket.on('findMatch', () => {
+    socket.on('findMatch', async () => {
         if (!socket.userId) {
             console.log('Player not logged in, cannot queue')
             return
@@ -266,11 +344,11 @@ io.on('connection', (socket) => {
             const player1 = queue.shift()
             const player2 = queue.shift()
 
-            createMatch(player1, player2)
+            await createMatch(player1, player2)
         }
     })
 
-    socket.on('makeMove', ({ roomId, from, to }) => {
+    socket.on('makeMove', async ({ roomId, from, to }) => {
         const game = games[roomId]
         if (!game || game.pendingPromotion) return
 
@@ -292,7 +370,7 @@ io.on('connection', (socket) => {
             return
         }
 
-        evaluateGameState(games[roomId])
+        await evaluateGameState(games[roomId])
 
         console.log(`Move made: ${from} -> ${to}`)
 
@@ -305,7 +383,7 @@ io.on('connection', (socket) => {
         })
     })
 
-    socket.on('promotePawn', ({ roomId, piece }) => {
+    socket.on('promotePawn', async ({ roomId, piece }) => {
         const game = games[roomId]
         if (!game || !game.pendingPromotion) return
 
@@ -315,7 +393,7 @@ io.on('connection', (socket) => {
         game.pendingPromotion = null
         game.turn = game.turn === 'white' ? 'black' : 'white'
 
-        evaluateGameState(game)
+        await evaluateGameState(game)
 
         io.to(roomId).emit('gameState', game)
     })
