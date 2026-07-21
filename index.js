@@ -17,6 +17,10 @@ const saltRounds = 10
 const app = express()
 app.use(cors())
 
+app.get('/health', (req, res) => {
+    res.status(200).send('OK')
+})
+
 const server = http.createServer(app)
 
 const io = new Server(server, {
@@ -385,17 +389,25 @@ io.on('connection', (socket) => {
 
     socket.on('promotePawn', async ({ roomId, piece }) => {
         const game = games[roomId]
-        if (!game || !game.pendingPromotion) return
+
+        if (!game?.pendingPromotion) return
 
         const { row, col, color } = game.pendingPromotion
 
         game.board[row][col] = `${color}_${piece}`
         game.pendingPromotion = null
-        game.turn = game.turn === 'white' ? 'black' : 'white'
+
+        game.turn = color === 'white'
+            ? 'black'
+            : 'white'
 
         await evaluateGameState(game)
 
         io.to(roomId).emit('gameState', game)
+
+        io.to(roomId).emit('moveMade', {
+            type: 'move'
+        })
     })
 
     socket.on('disconnect', () => {
